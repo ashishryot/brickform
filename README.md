@@ -26,11 +26,16 @@ Brickform introduces a **Declarative** approach. Instead of hardcoding your agen
    - By decoupling these, you can redeploy the Agent logic without losing its memory, or swap memory backends without redeploying.
 
 2. **Model-Agnostic**: 
-   - Point your Agent at any LLM provider (OpenAI, Anthropic, Ollama, Hugging Face, etc.) via API keys in your schema or configuration.
+   - Point your Agent at any LLM provider (OpenAI, Anthropic, Ollama, etc.) via API keys in your schema or configuration.
    - Change the LLM provider in your schema without rewriting any code.
 
 3. **Multi-Agent Orchestration**:
-   - Define chains or DAGs of agents in your schema where they interact asynchronously, reading/writing to global state instead of passing massive context windows around.
+   - Define entire systems of agents as a graph (DAG) in your schema.
+   - Agents can interact asynchronously by publishing and subscribing to shared topics, allowing for complex, collaborative workflows without passing massive context windows.
+
+4. **Portable & Reusable Agent Logic**:
+   - The schema can reference pre-built and versioned agent logic packages from a registry (similar to Docker images).
+   - This allows teams to share and reuse standardized agents (e.g., a `company/slack_notifier:1.2.0`) or deploy custom-built logic, promoting consistency and reducing redundant code.
 
 ## 🛠️ The Envisioned Architecture (MVP)
 
@@ -50,31 +55,45 @@ The following represents the proposed architecture we aim to build:
 ## 📄 Example Schema (Concept)
 
 ```yaml
-resource: "agent"
-name: "research_agent"
+# A multi-agent system definition for research and reporting
+kind: "AgentSystem"
+name: "research_and_report"
 
-# Define the Agent's behavior
-role: "Research assistant that gathers information on topics"
-system_prompt: "You are a helpful research assistant..."
+agents:
+  - resource: "agent"
+    name: "research_agent"
+    # The agent's logic could be a pre-built package
+    # from: "brickform-registry/universal_researcher:1.0"
+    role: "Research assistant that gathers information on topics."
+    system_prompt: "You are a helpful research assistant. Find information and publish a summary."
+    llm:
+      provider: "openai"
+      model: "gpt-4o"
+      api_key_env: "OPENAI_API_KEY"
+    tools:
+      - type: "mcp"
+        name: "google_search"
+        api_key_env: "GOOGLE_SEARCH_API_KEY"
+    memory:
+      type: "dynamodb"
+      table: "agent_sessions"
+      region: "us-east-1"
+    # Defines a topic it can publish its findings to
+    outputs:
+      - topic: "research_summary"
 
-# Connect to an LLM
-llm:
-  provider: "openai"
-  model: "gpt-4o"
-  api_key_env: "OPENAI_API_KEY"  # Loaded from environment
-
-# Connect to tools and MCP servers
-tools:
-  - type: "mcp"
-    name: "google_search"
-    api_key_env: "GOOGLE_SEARCH_API_KEY"
-  - type: "mcp"
-    name: "slack"
-    api_key_env: "SLACK_BOT_TOKEN"
-
-# Configure memory backend
-memory:
-  type: "dynamodb"
-  table: "agent_sessions"
-  region: "us-east-1"
+  - resource: "agent"
+    name: "writer_agent"
+    role: "Writes polished reports based on research summaries and posts to Slack."
+    llm:
+      provider: "anthropic"
+      model: "claude-3.5-sonnet"
+      api_key_env: "ANTHROPIC_API_KEY"
+    # Subscribes to the topic from the research agent
+    inputs:
+      - topic: "research_summary"
+    tools:
+      - type: "mcp"
+        name: "slack"
+        api_key_env: "SLACK_BOT_TOKEN"
 ```
